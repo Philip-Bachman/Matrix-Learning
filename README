@@ -1,0 +1,4 @@
+The code in this directory covers the algorithms and tests in the sparse
+network basis learning paper. The locally-weighted regressions for computing
+an optimal encoding of a sequence of observations in terms of a set of network
+bases is given in lwr_matrix_sparse.m.
