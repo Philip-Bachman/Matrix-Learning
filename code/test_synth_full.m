@@ -2,20 +2,20 @@
 % Test different values for the smoothing parameter k, for the lwrs and PCA
 % prior to basis updating.
 %
-
+clear;
 stream = RandStream.getDefaultStream();
 c = clock();
 reset(stream,round(1000*c(6)));
 
 % Do full testing with synthetic data
-round_count = 6;
+round_count = 5;
 k_vals = 3.0:0.5:6.0;
-obs_dims = [10 15 20 25 30 35 40];
+obs_dims = [15]; %[10 15 20 25 30 35 40];
 k_count = numel(k_vals);
 dim_count = numel(obs_dims);
 
 % Setup control variables
-obs_count = 7500;
+obs_count = 9000;
 train_count = round(obs_count*(2/3));
 train_idx = 1:train_count;
 lr_tr_idx = randsample(train_count, round(train_count/10));
@@ -94,8 +94,8 @@ for round_num=1:round_count,
 
         % Get test observation sets
         pc_count = 6;
-        Ats_f_pc = (Ats_f - repmat(reshape(mean_basis,1,obs_dim*obs_dim),...
-            obs_count,1)) * pc(:,1:pc_count);
+        Ats_f_pc = bsxfun(@minus, Ats_f, reshape(mean_basis,1,obs_dim*obs_dim))...
+            * pc(:,1:pc_count);
         Ats_f_test = Ats_f(test_idx,:);
         Ats_f_test_pc = Ats_f_pc(test_idx,:);
         
@@ -116,47 +116,32 @@ for round_num=1:round_count,
         bases_adapt = zeros(size(bases_pc));
         for i=1:pc_count,
             basis = squeeze(bases_pc(:,:,i));
-            basis = basis + randn(obs_dim,obs_dim).*(0.33*std2(basis));
+            basis = basis + randn(obs_dim,obs_dim).*(0.3*std2(basis));
             for d=1:obs_dim,
                 basis(d,d) = 0;
             end
+            basis = (basis + basis') ./ 2;
             basis = basis ./ std2(basis);
             bases_adapt(:,:,i) = basis(:,:);
         end
 
         % Control variables for block coordinate descent
-        step_size = 100;
+        step_size = 25;
         do_cv = 0;
         kill_diags = 1;
-        noise_lvl = 0.33;
+        noise_lvl = 0.2;
         
         % Do basis updates
         fprintf('UPDATING PC BASES:\n');
         lwr_spars = 0.66;
+        % Use no l1 penalty on basis entries
         l1_pen = 0.0;
-        for i=1:50,
-            beta_adapt = lwr_matrix_sparse(X(train_idx,:), X(train_idx,:),...
-                bases_adapt, k, lwr_spars, 0, 0);
-            [ bases_t post_err pre_err best_step ] = update_bases(bases_adapt,...
-                beta_adapt, X(train_idx,:), X(train_idx,:), step_size, l1_pen,...
-                kill_diags, noise_lvl, do_cv);
-            fprintf('    round: %d, pre_err: %.4f post_err: %.4f, step: %.4f, kurt: %.4f\n',...
-                i, pre_err, post_err, best_step, kurtosis(bases_t(:)));
-            bases_adapt = bases_t(:,:,:);
-            noise_lvl = noise_lvl * 0.95;
-        end
+        bases_adapt = learn_sggm_bases(X(train_idx,:), pc_count, k, lwr_spars,...
+            l1_pen, step_size, 30, bases_adapt);
+        % Use a small l1 penalty on basis entries
         l1_pen = 0.0005 * (10 / obs_dim);
-        for i=51:80,
-            beta_adapt = lwr_matrix_sparse(X(train_idx,:), X(train_idx,:),...
-                bases_adapt, k, lwr_spars, 0, 0);
-            [ bases_t post_err pre_err best_step ] = update_bases(bases_adapt,...
-                beta_adapt, X(train_idx,:), X(train_idx,:), step_size, l1_pen,...
-                kill_diags, noise_lvl, do_cv);
-            fprintf('    round: %d, pre_err: %.4f post_err: %.4f, step: %.4f, kurt: %.4f\n',...
-                i, pre_err, post_err, best_step, kurtosis(bases_t(:)));
-            bases_adapt = bases_t(:,:,:);
-            noise_lvl = noise_lvl * 0.95;
-        end
+        bases_adapt = learn_sggm_bases(X(train_idx,:), pc_count, k, lwr_spars,...
+            l1_pen, step_size, 30, bases_adapt);
         % Encode the full data set using the updated bases
         beta_adapt = lwr_matrix_sparse(X, X, bases_adapt, k, lwr_spars, 0, 0);
         beta_adapt_test = beta_adapt(test_idx,:);
@@ -207,9 +192,9 @@ for round_num=1:round_count,
         fprintf('ADAPT TEST ERROR: %.4f\n', err_adapt);
         
         % Record results for this test round
-        sim_results_pc(round_num,dim_num) = mean(best_sims_pc);
-        sim_results_adapt(round_num,dim_num) = mean(best_sims_adapt);
-        sim_results_true(round_num,dim_num) = mean(best_sims_true);
+        sim_results_pc(round_num,dim_num) = geomean(best_sims_pc);
+        sim_results_adapt(round_num,dim_num) = geomean(best_sims_adapt);
+        sim_results_true(round_num,dim_num) = geomean(best_sims_true);
         class_errs_raw(round_num,dim_num) = err_raw;
         class_errs_pc(round_num,dim_num) = err_pc;
         class_errs_adapt(round_num,dim_num) = err_adapt;

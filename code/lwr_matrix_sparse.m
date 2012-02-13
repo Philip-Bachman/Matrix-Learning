@@ -11,7 +11,7 @@ function [ beta ] = lwr_matrix_sparse( X, Y, A, k, sparsity, clip, drop, idx )
 % Parameters:
 %   X: inputs for the lwr (obs_count x in_dim)
 %   Y: outputs for the lwr (obs_count x out_dim)
-%   A: basis matrices for the lwr (in_dim x in_dim x basis_count)
+%   A: basis matrices for the lwr (out_dim x in_dim x basis_count)
 %   k: Gaussian kernel width (i.e. std) for the lwr
 %   sparsity: the maximum allowable rate of non-zeros in lwr coefficients
 %   clip: whether or not to include only observations up to the current one
@@ -23,7 +23,7 @@ function [ beta ] = lwr_matrix_sparse( X, Y, A, k, sparsity, clip, drop, idx )
 %
 
 MIN_LWR_OBS = 20;
-MAX_STEP = round(k * 2.5);
+MAX_STEP = round(k * 3.0);
 if ~exist('clip','var')
     clip = 0;
 end
@@ -45,11 +45,8 @@ end
 if (max(idx) > size(X,1))
     error('lwr_matrix_sparse: desired lwr index out of range!\n');
 end
-if (in_dim ~= out_dim)
-    error('lwr_matrix_sparse: mismatched input/output obs dimensions!\n');
-end
-if (size(A,1) ~= in_dim || size(A,2) ~= in_dim)
-    error('lwr_matrix_sparse: mismatched basis/input dimensions!\n');
+if (size(A,1) ~= out_dim || size(A,2) ~= in_dim)
+    error('lwr_matrix_sparse: mismatched basis/input/output dimensions!\n');
 end
 
 bases = {};
@@ -89,10 +86,10 @@ for obs_num=1:obs_count,
     X_w = zeros(numel(steps)*in_dim,basis_count);
     for b=1:basis_count,
         Xb = bases{b} * X_s';
-        X_w(:,b) = reshape(Xb,numel(steps)*in_dim,1);
+        X_w(:,b) = reshape(Xb,numel(steps)*out_dim,1);
     end
     Y_s = (weights * Y(steps,:))';
-    Y_w = reshape(Y_s,numel(steps)*in_dim,1);
+    Y_w = reshape(Y_s,numel(steps)*out_dim,1);
     % Perform the kernel-weighted, l1-regularized regression on observations
     if (sparsity < 0.99)
         % Do an L1-regularized regression when a sparse fit is desired

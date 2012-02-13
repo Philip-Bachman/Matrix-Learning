@@ -22,6 +22,8 @@ function [ A_new best_err pre_err best_step ] = update_bases(...
 %   err: lwr error after doing basis update
 %
 
+basis_count = size(A,3);
+
 % Set an L1 regularization term, to sparsify the learned basis matrices.
 if ~exist('l1_pen', 'var'),
     l1_pen = 0.000;
@@ -42,7 +44,7 @@ end
 A_grads = zeros(size(A));
 obs_count = size(X,1);
 if (do_cv == 1)
-    train_idx = randsample(obs_count, round(4*obs_count/5));
+    train_idx = randsample(obs_count, round(3*obs_count/4));
 else
     train_idx = 1:obs_count;
 end
@@ -94,39 +96,44 @@ pre_err = sum(sum((Y_test - Y_hat).^2)) / Yt_var;
 %pre_err = pre_err + l1_pen * sum(abs(A(:)));
 best_step = min(trial_steps);
 best_err = pre_err;
-for i=1:(numel(trial_steps)+1),
-    if (i <= numel(trial_steps))
-        step_size = trial_steps(i);
-    else
-        step_size = best_step;
-    end
+for i=1:numel(trial_steps),
+    step_size = trial_steps(i);
     % Move A down along the averaged gradient
-    A_new = A - (A_grads .* step_size);
-    % Kill diagonal entries if so desired
-    if (kill_diags == 1)
-        for j=1:size(A_new,3),
-            for k=1:min(in_dim,out_dim),
-                A_new(k,k,j) = 0;
-            end
-        end
-    end
-    % Normalize the bases to have unit variance (to constrain max eigenvalue)
-    basis_count = size(A_new,3);
-    for basis_num=1:basis_count,
-        basis = A_new(:,:,basis_num);
-        A_new(:,:,basis_num) = basis ./ std(basis(:));
-    end
+    A_new = descent_update(A, A_grads, step_size, kill_diags);
     % Compute the regression error after basis update with current step size
     Y_hat = lwr_predict_matrix(X_test, A_new, B_test);
     err = sum(sum((Y_test - Y_hat).^2)) / Yt_var;
     %err = err + l1_pen * sum(abs(A_new(:)));
-    if ((err < best_err) || (i > numel(trial_steps)))
+    if ((err < best_err) || (i == 1))
         % Note step sizes that improve on current best error
         best_err = err;
         best_step = step_size;
     end
 end
 
+A_new = descent_update(A, A_grads, best_step, kill_diags);
+
 return
 
+end
+
+function [ A_new ] = descent_update(A, A_grads, step_size, kill_diags)
+% Do a descent update of A along the direction indicated by A_grads
+basis_count = size(A,3);
+diag_dim = min(size(A,1),size(A,2));
+A_new = A - (A_grads .* step_size);
+% Kill diagonal entries if so desired
+if (kill_diags == 1)
+    for j=1:basis_count,
+        for k=1:diag_dim,
+            A_new(k,k,j) = 0;
+        end
+    end
+end
+% Normalize the bases to have a maximum entry magnitude of 1
+for basis_num=1:basis_count,
+    basis = A_new(:,:,basis_num);
+    A_new(:,:,basis_num) = basis ./ std2(basis);
+end
+return
 end

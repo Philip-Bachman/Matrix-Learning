@@ -1,6 +1,8 @@
 function [ sim_matrix ] = basis_similarity( A, A_hat )
 % Check a basic measure of the similarity between the matrices in A and A_hat,
-% where similarity is measured relative to a basis' self-similarity
+% where similarity is measured relative to a basis' self-similarity. Assume that
+% the matrices in A are covariance matrices and the matrices in A_hat
+% approximate the inverses of the matrices in A (i.e. precision matrices).
 %
 % Parameters:
 %   A: set of bases to consider true covariance matrices
