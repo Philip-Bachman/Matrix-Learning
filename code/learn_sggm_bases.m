@@ -53,7 +53,7 @@ for i=1:basis_count,
         A(j,j,i) = 0;
     end
     A(:,:,i) = squeeze(A(:,:,i)) + transpose(squeeze(A(:,:,i)));
-    A(:,:,i) = A(:,:,i) ./ max(reshape(abs(A(:,:,i)),numel(A),1));
+    A(:,:,i) = A(:,:,i) ./ max(reshape(abs(A(:,:,i)),numel(A(:,:,i)),1));
 end
 
 return

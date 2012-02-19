@@ -40,7 +40,7 @@ part_grads = y_dif * x';
 part_grads = part_grads .* 2.0;
 
 for i=1:basis_count,
-    if (abs(b(i)) > 0.00001)
+    if (abs(b(i)) > 1e-4)
         A_grads(:,:,i) = part_grads .* b(i);
     end
 end

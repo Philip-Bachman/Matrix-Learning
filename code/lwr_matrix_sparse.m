@@ -1,4 +1,5 @@
-function [ beta ] = lwr_matrix_sparse( X, Y, A, k, sparsity, clip, drop, idx )
+function [ beta l2_reg ] = lwr_matrix_sparse(...
+    X, Y, A, k, sparsity, clip, drop, idx)
 % Do locally-weighted regression on the observations in X onto the outputs in Y,
 % with a Gaussian kernel having bandwidth of k. Assume that the rows in X
 % represent a temporal sequence of observations, with a distance of 1 between
@@ -20,6 +21,7 @@ function [ beta ] = lwr_matrix_sparse( X, Y, A, k, sparsity, clip, drop, idx )
 %
 % Output:
 %   beta: the learned lwr coefficients for each input/output pair in X/Y
+%   l2_reg: L2 regularization weight used in each elastic-net lwr
 %
 
 MIN_LWR_OBS = 20;
@@ -57,9 +59,11 @@ end
 % Setup the options structure for glmnet
 options = glmnetSet();
 options.dfmax = max(10,ceil(sparsity * in_dim));
+options.alpha = 0.9;
 
 % Compute either the sparse or dense lwr for each time point
 beta = zeros(obs_count, basis_count);
+l2_reg = zeros(obs_count, 1);
 fprintf('Computing sparse lwr:');
 for obs_num=1:obs_count,
     obs_idx = idx(obs_num);
@@ -94,17 +98,22 @@ for obs_num=1:obs_count,
     if (sparsity < 0.99)
         % Do an L1-regularized regression when a sparse fit is desired
         fit = glmnet(X_w, Y_w, 'gaussian', options);
-        beta(obs_num,:) = fit.beta(:,end)';
+        beta_obs = fit.beta(:,end)';
+        lambda_obs = fit.lambda(end);
         for j=2:numel(fit.lambda),
             if ((fit.df(j) / basis_count) > sparsity)
-                beta(obs_num,:) = fit.beta(:,j-1)';
+                beta_obs = fit.beta(:,j-1)';
+                lambda_obs = fit.lambda(j-1);
                 break
             end
         end
+        beta(obs_num,:) = beta_obs;
+        l2_reg(obs_num) = lambda_obs * (1 - options.alpha);
     else
         % Do a simple linear regression when a dense solution is desired
         b = X_w \ Y_w;
         beta(obs_num,:) = b';
+        l2_reg(obs_num) = 0.0;
     end
 end
 fprintf('\n');

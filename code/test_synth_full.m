@@ -8,25 +8,25 @@ c = clock();
 reset(stream,round(1000*c(6)));
 
 % Do full testing with synthetic data
-round_count = 5;
+round_count = 15;
 k_vals = 3.0:0.5:6.0;
-obs_dims = [15]; %[10 15 20 25 30 35 40];
+obs_dims = [20]; %[10 15 20 25 30 35 40];
 k_count = numel(k_vals);
 dim_count = numel(obs_dims);
 
 % Setup control variables
-obs_count = 9000;
+obs_count = 3000;
 train_count = round(obs_count*(2/3));
 train_idx = 1:train_count;
-lr_tr_idx = randsample(train_count, round(train_count/10));
-lr_tr_idx = train_idx(lr_tr_idx);
+% lr_tr_idx = randsample(train_count, round(train_count/10));
+% lr_tr_idx = train_idx(lr_tr_idx);
 test_idx = train_count+1:obs_count;
 sigma_count = 4;
 blur_sigma = 3.0;
 sigma_spars = 0.33;
 sigma_reg = 0.5;
-min_seg_len = 10;
-max_seg_len = 20;
+min_seg_len = 8;
+max_seg_len = 16;
 
 sim_results_pc = zeros(round_count, dim_count);
 sim_results_adapt = zeros(round_count, dim_count);
@@ -38,7 +38,6 @@ class_errs_adapt = zeros(round_count, dim_count);
 %
 % Run tests, set k and obs_dim to default values
 %
-obs_dim = 16;
 for round_num=1:round_count,
     fprintf('============================================================\n');
     fprintf('STARTING ROUND %d\n', round_num);
@@ -64,9 +63,12 @@ for round_num=1:round_count,
         end
 
         % Get the 'class' of each observation
-        B_class = zeros(obs_count,1);
-        B_class(beta(:,1)+beta(:,2) >= beta(:,3)+beta(:,4)) = 1;
-        B_class(B_class == 0) = 2;
+        Y = zeros(obs_count,1);
+        Y(beta(:,1)+beta(:,2) >= beta(:,3)+beta(:,4)) = 1;
+        Y(beta(:,1)+beta(:,2) < beta(:,3)+beta(:,4)) = -1;
+        Yc = Y;
+        Yc(Y == 1) = 2;
+        Yc(Y == -1) = 1;
 
         % Compute a basis A_t for each observation, using lwr
         fprintf('Computing bases per obs:');
@@ -124,28 +126,54 @@ for round_num=1:round_count,
             basis = basis ./ std2(basis);
             bases_adapt(:,:,i) = basis(:,:);
         end
-
-        % Control variables for block coordinate descent
-        step_size = 25;
-        do_cv = 0;
-        kill_diags = 1;
-        noise_lvl = 0.2;
         
-        % Do basis updates
+        % Setup supervised basis learning options
+        %   opts: structure determining the following options:
+        %     basis_count: number of basis matrices to learn
+        %     k: kernel width for locally-weighted regressions
+        %     spars: desired sparsity for locally-weighted regressions
+        %     l1_bases: l1 penalty to use for basis entries
+        %     l_mix: mixing ratio (1 -> unsuper only ... 0 -> super only)
+        %     step: initial step size for gradient descent
+        %     round_count: number of update rounds to perform
+        %     Ai: optional starting basis matrices
+        %     wi: optional starting classifier coefficients
+        %     idx: optional indices into X/Y to use in updates
+        lrn_opts = struct();
+        lrn_opts.basis_count = pc_count;
+        lrn_opts.k = 4.0;
+        lrn_opts.spars = 0.66;
+        lrn_opts.l1_bases = 0.0;
+        lrn_opts.l_mix = 1.0;
+        lrn_opts.noise_lvl = 0.2;
+        lrn_opts.step = 10;
+        lrn_opts.round_count = 15;
+        lrn_opts.Ai = bases_adapt;
         fprintf('UPDATING PC BASES:\n');
-        lwr_spars = 0.66;
         % Use no l1 penalty on basis entries
-        l1_pen = 0.0;
-        bases_adapt = learn_sggm_bases(X(train_idx,:), pc_count, k, lwr_spars,...
-            l1_pen, step_size, 30, bases_adapt);
+        lrn_opts.l1_bases = 0.0;
+        [bases_adapt beta_lr_adapt] = ...
+            learn_bases_super(X(train_idx,:), Y(train_idx), lrn_opts);
         % Use a small l1 penalty on basis entries
-        l1_pen = 0.0005 * (10 / obs_dim);
-        bases_adapt = learn_sggm_bases(X(train_idx,:), pc_count, k, lwr_spars,...
-            l1_pen, step_size, 30, bases_adapt);
-        % Encode the full data set using the updated bases
-        beta_adapt = lwr_matrix_sparse(X, X, bases_adapt, k, lwr_spars, 0, 0);
+        lrn_opts.l1_bases = 0.0005 * (10 / obs_dim);
+        lrn_opts.l_mix = 0.75;
+        lrn_opts.round_count = 10;
+        for r=1:5,
+            % Encode the full data set using the updated bases
+            beta_adapt = lwr_matrix_sparse(...
+                X, X, bases_adapt, lrn_opts.k, lrn_opts.spars, 0, 0);
+            % Update logistic regression coefficients
+            beta_lr_adapt = wl1_logreg(beta_adapt(train_idx,:), Y(train_idx),...
+                1e-4, 0, zeros(pc_count,1), 250);
+            % Update learning opts, for updated bases and coefficients
+            lrn_opts.wi = beta_lr_adapt;
+            lrn_opts.Ai = bases_adapt;
+            bases_adapt = learn_bases_super(...
+                X(train_idx,:), Y(train_idx), lrn_opts);
+        end
+        beta_adapt = lwr_matrix_sparse(...
+            X, X, bases_adapt, lrn_opts.k, lrn_opts.spars, 0, 0);
         beta_adapt_test = beta_adapt(test_idx,:);
-        
         %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         % TEST BASIS QUALITY
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -161,30 +189,24 @@ for round_num=1:round_count,
         best_sims_true = max(abs(basis_sims_true'));
         
         % Compute logistic regression coefficients on the flat bases
-        [ cv_err_raw beta_lr_raw ] = log_reg_cv( Ats_f(lr_tr_idx,:),...
-            B_class(lr_tr_idx), 100, 0.1, 0.1, 1 );
+        beta_lr_raw = wl1_logreg(Ats_f(train_idx,:), Y(train_idx), 1e-2,...
+            0, zeros(size(Ats_f,2),1), 250);
         % Learn a logistic regression classifier using PC projected bases
-        [ cv_err_pc beta_lr_pc ] = log_reg_cv( Ats_f_pc(lr_tr_idx,1:pc_count),...
-            B_class(lr_tr_idx), 100, 1.0, 0.1, 1 );
+        beta_lr_pc = wl1_logreg(Ats_f_pc(train_idx,1:pc_count), Y(train_idx),...
+            1e-4, 0, zeros(pc_count,1), 250);
         % Learn a logistic regression classifier using learned bases
-        [ cv_err_adapt beta_lr_adapt ] = log_reg_cv( beta_adapt(lr_tr_idx,:),...
-            B_class(lr_tr_idx), 100, 1.0, 0.1, 1 );
+        beta_lr_adapt = wl1_logreg(beta_adapt(train_idx,:), Y(train_idx),...
+            1e-4, 0, zeros(pc_count,1), 250);
 
         % Test logistic regression on flat bases
-        pred = [Ats_f_test ones(size(Ats_f_test,1),1)] * beta_lr_raw;
-        c1_err = sum((pred > 0) & (B_class(test_idx) == 1));
-        c2_err = sum((pred < 0) & (B_class(test_idx) == 2));
-        err_raw = (c1_err + c2_err) / numel(test_idx);
+        pred = Ats_f_test * beta_lr_raw;
+        err_raw = sum((pred .* Y(test_idx)) < 0) / length(Y(test_idx));
         % Test logistic regression on PC-projected bases
-        pred = [Ats_f_test_pc ones(size(Ats_f_test_pc,1),1)] * beta_lr_pc;
-        c1_err = sum((pred > 0) & (B_class(test_idx) == 1));
-        c2_err = sum((pred < 0) & (B_class(test_idx) == 2));
-        err_pc = (c1_err + c2_err) / numel(test_idx);
+        pred = Ats_f_test_pc * beta_lr_pc;
+        err_pc = sum((pred .* Y(test_idx)) < 0) / length(Y(test_idx));
         % Test logistic regression on learned bases
-        pred = [beta_adapt_test ones(size(beta_adapt_test,1),1)] * beta_lr_adapt;
-        c1_err = sum((pred > 0) & (B_class(test_idx) == 1));
-        c2_err = sum((pred < 0) & (B_class(test_idx) == 2));
-        err_adapt = (c1_err + c2_err) / numel(test_idx);
+        pred = beta_adapt_test * beta_lr_adapt;
+        err_adapt = sum((pred .* Y(test_idx)) < 0) / length(Y(test_idx));
         
         % Display regression scores
         fprintf('RAW TEST ERROR: %.4f\n', err_raw);
