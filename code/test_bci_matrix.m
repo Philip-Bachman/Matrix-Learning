@@ -6,7 +6,7 @@
 % 
 clear;
 
-%% =============================================================================
+%===============================================================================
 % BEGINNING OF DATA LOADING AND PREPROCESSING
 %===============================================================================
 
@@ -103,14 +103,14 @@ X_12w = X_12 * (V*D^(-1/2));
 % Rotate data back into original representation (i.e. electrode space)
 X_12w = X_12w * V';
 
-%% =============================================================================
+%===============================================================================
 % END OF LOADING/PREPROCESSING, BEGINNING OF BASIS LEARNING AND CODING
 %===============================================================================
 
 % Learn the PPC initializing bases via random projections
 fprintf('Learning PPC bases:\n');
 train_idx = randsample(size(X_12w,1), 10000);
-rp_count = 200;
+rp_count = 100;
 sparse1 = 0.5;
 k = 15.0;
 % Learn a set of (random-projection-approximate) PPC bases
@@ -138,7 +138,7 @@ for i=1:size(ppcb,3),
     ppcb(:,:,i) = basis;
 end
 
-%% =============================================================================
+%===============================================================================
 % Do stochastic gradient descent updates of the approximate PPC bases
 % On first pass, don't use an L1 penalty and set the wobble/noise sort of high
 %===============================================================================
