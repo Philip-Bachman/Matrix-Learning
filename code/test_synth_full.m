@@ -8,7 +8,7 @@ c = clock();
 reset(stream,round(1000*c(6)));
 
 % Do full testing with synthetic data
-round_count = 15;
+round_count = 10;
 k_vals = 3.0:0.5:6.0;
 obs_dims = [20]; %[10 15 20 25 30 35 40];
 k_count = numel(k_vals);
@@ -48,7 +48,7 @@ for round_num=1:round_count,
         fprintf('============================================================\n');
         fprintf('TESTING DIMENSION %d\n', obs_dim);
         fprintf('============================================================\n');
-        %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         % GENERATE SEQUENCE AND COMPUTE BASIC RAW/PC
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         
@@ -66,9 +66,6 @@ for round_num=1:round_count,
         Y = zeros(obs_count,1);
         Y(beta(:,1)+beta(:,2) >= beta(:,3)+beta(:,4)) = 1;
         Y(beta(:,1)+beta(:,2) < beta(:,3)+beta(:,4)) = -1;
-        Yc = Y;
-        Yc(Y == 1) = 2;
-        Yc(Y == -1) = 1;
 
         % Compute a basis A_t for each observation, using lwr
         fprintf('Computing bases per obs:');
@@ -92,10 +89,9 @@ for round_num=1:round_count,
         % the training portion of the sequence
         [ pc, score, latent, tsquare ] = princomp(Ats_f(train_idx,:));
         mean_basis = reshape(mean(Ats_f(train_idx,:)),obs_dim,obs_dim);
-        Xr = X - (mean_basis * X')';
 
         % Get test observation sets
-        pc_count = 6;
+        pc_count = 4;
         Ats_f_pc = bsxfun(@minus, Ats_f, reshape(mean_basis,1,obs_dim*obs_dim))...
             * pc(:,1:pc_count);
         Ats_f_test = Ats_f(test_idx,:);
@@ -111,7 +107,7 @@ for round_num=1:round_count,
             bases_pc(:,:,i) = basis(:,:);
         end
 
-        %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         % Update the principal component bases via block coordinate descent
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         k = 4.0;
