@@ -102,6 +102,7 @@ clearvars -except ...
 X_12w = X_12 * (V*D^(-1/2));
 % Rotate data back into original representation (i.e. electrode space)
 X_12w = X_12w * V';
+Y_12 = round((Y_12 - 1.5) .* 2);
 
 %===============================================================================
 % END OF LOADING/PREPROCESSING, BEGINNING OF BASIS LEARNING AND CODING
@@ -124,9 +125,8 @@ fprintf('MEAN BASIS EXPLAINS %.4f OF VARIANCE\n',...
 X_12r = ZMUV(X_12r);
 
 % Take the first few bases as a starting point for stochastic updates
-basis_count = 40;
+basis_count = 20;
 ppcb = ppc_bases(:,:,1:basis_count);
-ppcb_pre = ppcb(:,:,:);
 
 % Kill basis diagonal entries, and normalize to zero mean, unit variance
 for i=1:size(ppcb,3),
@@ -142,6 +142,35 @@ end
 % Do stochastic gradient descent updates of the approximate PPC bases
 % On first pass, don't use an L1 penalty and set the wobble/noise sort of high
 %===============================================================================
+
+% Setup basis learning options
+%   opts: structure determining the following options:
+%     basis_count: number of basis matrices to learn
+%     k: kernel width for locally-weighted regressions
+%     spars: desired sparsity for locally-weighted regressions
+%     l1_bases: l1 penalty to use for basis entries
+%     l_mix: mixing ratio (1 -> unsuper only ... 0 -> super only)
+%     step: initial step size for gradient descent
+%     round_count: number of update rounds to perform
+%     Ai: optional starting basis matrices
+%     wi: optional starting classifier coefficients
+%     idx: optional indices into X/Y to use in updates
+lrn_opts = struct();
+lrn_opts.basis_count = pc_count;
+lrn_opts.k = 5.0;
+lrn_opts.spars = 0.66;
+lrn_opts.l1_bases = 0.0;
+lrn_opts.l_mix = 1.0;
+lrn_opts.noise_lvl = 0.25;
+lrn_opts.step = 100;
+lrn_opts.round_count = 10;
+lrn_opts.Ai = ppcb;
+for i=1:20,
+    train_idx = randsample(size(X_12r,1),6000);
+    X_12r_tr = X_12r(train_idx,:);
+    Y_tr = tr_labels(train_idx);
+end
+
 step_size = 200.0;
 sparse2 = 0.8;
 l1_pen = 0.0;
