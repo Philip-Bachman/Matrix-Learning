@@ -8,18 +8,16 @@ c = clock();
 reset(stream,round(1000*c(6)));
 
 % Do full testing with synthetic data
-round_count = 10;
+round_count = 15;
 k_vals = 3.0:0.5:6.0;
-obs_dims = [20]; %[10 15 20 25 30 35 40];
+obs_dims = [10 15 20 25 30 35 40];
 k_count = numel(k_vals);
 dim_count = numel(obs_dims);
 
 % Setup control variables
-obs_count = 3000;
-train_count = round(obs_count*(2/3));
+obs_count = 5000;
+train_count = round(obs_count*(3/5));
 train_idx = 1:train_count;
-% lr_tr_idx = randsample(train_count, round(train_count/10));
-% lr_tr_idx = train_idx(lr_tr_idx);
 test_idx = train_count+1:obs_count;
 sigma_count = 4;
 blur_sigma = 3.0;
@@ -30,10 +28,11 @@ max_seg_len = 16;
 
 sim_results_pc = zeros(round_count, dim_count);
 sim_results_adapt = zeros(round_count, dim_count);
-sim_results_true = zeros(round_count, dim_count);
+sim_results_super = zeros(round_count, dim_count);
 class_errs_raw = zeros(round_count, dim_count);
 class_errs_pc = zeros(round_count, dim_count);
 class_errs_adapt = zeros(round_count, dim_count);
+class_errs_super = zeros(round_count, dim_count);
 
 %
 % Run tests, set k and obs_dim to default values
@@ -48,9 +47,9 @@ for round_num=1:round_count,
         fprintf('============================================================\n');
         fprintf('TESTING DIMENSION %d\n', obs_dim);
         fprintf('============================================================\n');
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %=======================================================================
         % GENERATE SEQUENCE AND COMPUTE BASIC RAW/PC
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %=======================================================================
         
         % Generate a sequence of observations
         [X, sigmas, beta] = make_varcov_seq(obs_count, sigma_count, obs_dim,...
@@ -92,10 +91,8 @@ for round_num=1:round_count,
 
         % Get test observation sets
         pc_count = 4;
-        Ats_f_pc = bsxfun(@minus, Ats_f, reshape(mean_basis,1,obs_dim*obs_dim))...
+        Ats_f_pc = bsxfun(@minus,Ats_f,reshape(mean_basis,1,obs_dim*obs_dim))...
             * pc(:,1:pc_count);
-        Ats_f_test = Ats_f(test_idx,:);
-        Ats_f_test_pc = Ats_f_pc(test_idx,:);
         
         bases_pc = zeros(obs_dim, obs_dim, pc_count);
         for i=1:pc_count,
@@ -107,9 +104,9 @@ for round_num=1:round_count,
             bases_pc(:,:,i) = basis(:,:);
         end
 
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %=======================================================================
         % Update the principal component bases via block coordinate descent
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %=======================================================================
         k = 4.0;
         bases_adapt = zeros(size(bases_pc));
         for i=1:pc_count,
@@ -122,7 +119,6 @@ for round_num=1:round_count,
             basis = basis ./ std2(basis);
             bases_adapt(:,:,i) = basis(:,:);
         end
-        
         % Setup supervised basis learning options
         %   opts: structure determining the following options:
         %     basis_count: number of basis matrices to learn
@@ -145,34 +141,46 @@ for round_num=1:round_count,
         lrn_opts.step = 10;
         lrn_opts.round_count = 15;
         lrn_opts.Ai = bases_adapt;
-        fprintf('UPDATING PC BASES:\n');
+        fprintf('UPDATING BASES - First pass:\n');
         % Use no l1 penalty on basis entries
         lrn_opts.l1_bases = 0.0;
-        [bases_adapt beta_lr_adapt] = ...
-            learn_bases_super(X(train_idx,:), Y(train_idx), lrn_opts);
+        bases_adapt = learn_bases_super(X(train_idx,:),Y(train_idx),lrn_opts);
         % Use a small l1 penalty on basis entries
         lrn_opts.l1_bases = 0.0005 * (10 / obs_dim);
-        lrn_opts.l_mix = 0.75;
         lrn_opts.round_count = 10;
+        lrn_opts.l_mix = 0.66;
+        bases_super = bases_adapt;
+        fprintf('UPDATING BASES - Supervised updates:\n');
         for r=1:5,
             % Encode the full data set using the updated bases
-            beta_adapt = lwr_matrix_sparse(...
-                X, X, bases_adapt, lrn_opts.k, lrn_opts.spars, 0, 0);
+            beta_super = lwr_matrix_sparse(...
+                X, X, bases_super, lrn_opts.k, lrn_opts.spars, 0, 0);
             % Update logistic regression coefficients
-            beta_lr_adapt = wl1_logreg(beta_adapt(train_idx,:), Y(train_idx),...
+            beta_lr_super = wl1_logreg(beta_super(train_idx,:), Y(train_idx),...
                 1e-4, 0, zeros(pc_count,1), 250);
             % Update learning opts, for updated bases and coefficients
-            lrn_opts.wi = beta_lr_adapt;
+            lrn_opts.wi = beta_lr_super;
+            lrn_opts.Ai = bases_super;
+            bases_super = learn_bases_super(...
+                X(train_idx,:), Y(train_idx), lrn_opts);
+        end
+        lrn_opts.l_mix = 1.0; % Reset, to ignore supervised feedback
+        fprintf('UPDATING BASES - Unsupervised updates:\n');
+        for r=1:5,
+            % Update learning opts, for updated bases and coefficients
+            lrn_opts.wi = beta_lr_super;
             lrn_opts.Ai = bases_adapt;
             bases_adapt = learn_bases_super(...
                 X(train_idx,:), Y(train_idx), lrn_opts);
         end
+        beta_super = lwr_matrix_sparse(...
+            X, X, bases_super, lrn_opts.k, lrn_opts.spars, 0, 0);
         beta_adapt = lwr_matrix_sparse(...
             X, X, bases_adapt, lrn_opts.k, lrn_opts.spars, 0, 0);
-        beta_adapt_test = beta_adapt(test_idx,:);
-        %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        
+        %=======================================================================
         % TEST BASIS QUALITY
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %=======================================================================
         
         % Check similarity of PC-projected bases to true bases
         [basis_sims_pc] = basis_similarity(sigmas, bases_pc);
@@ -181,8 +189,8 @@ for round_num=1:round_count,
         [basis_sims_adapt] = basis_similarity(sigmas, bases_adapt);
         best_sims_adapt = max(abs(basis_sims_adapt'));
         % Check similarity of true bases to true bases, for reference
-        [basis_sims_true] = basis_similarity(sigmas, sigmas_prec);
-        best_sims_true = max(abs(basis_sims_true'));
+        [basis_sims_super] = basis_similarity(sigmas, bases_super);
+        best_sims_super = max(abs(basis_sims_super'));
         
         % Compute logistic regression coefficients on the flat bases
         beta_lr_raw = wl1_logreg(Ats_f(train_idx,:), Y(train_idx), 1e-2,...
@@ -193,32 +201,40 @@ for round_num=1:round_count,
         % Learn a logistic regression classifier using learned bases
         beta_lr_adapt = wl1_logreg(beta_adapt(train_idx,:), Y(train_idx),...
             1e-4, 0, zeros(pc_count,1), 250);
+        % Learn a logistic regression classifier using learned bases
+        beta_lr_super = wl1_logreg(beta_super(train_idx,:), Y(train_idx),...
+            1e-4, 0, zeros(pc_count,1), 250);
 
         % Test logistic regression on flat bases
-        pred = Ats_f_test * beta_lr_raw;
+        pred = Ats_f(test_idx,:) * beta_lr_raw;
         err_raw = sum((pred .* Y(test_idx)) < 0) / length(Y(test_idx));
         % Test logistic regression on PC-projected bases
-        pred = Ats_f_test_pc * beta_lr_pc;
+        pred = Ats_f_pc(test_idx,:) * beta_lr_pc;
         err_pc = sum((pred .* Y(test_idx)) < 0) / length(Y(test_idx));
-        % Test logistic regression on learned bases
-        pred = beta_adapt_test * beta_lr_adapt;
+        % Test logistic regression on unsupervised adapted bases
+        pred = beta_adapt(test_idx,:) * beta_lr_adapt;
         err_adapt = sum((pred .* Y(test_idx)) < 0) / length(Y(test_idx));
+        % Test logistic regression on supervised adapted bases
+        pred = beta_super(test_idx,:) * beta_lr_super;
+        err_super = sum((pred .* Y(test_idx)) < 0) / length(Y(test_idx));
         
         % Display regression scores
         fprintf('RAW TEST ERROR: %.4f\n', err_raw);
         fprintf('PC TEST ERROR: %.4f\n', err_pc);
         fprintf('ADAPT TEST ERROR: %.4f\n', err_adapt);
+        fprintf('SUPER TEST ERROR: %.4f\n', err_super);
         
         % Record results for this test round
         sim_results_pc(round_num,dim_num) = geomean(best_sims_pc);
         sim_results_adapt(round_num,dim_num) = geomean(best_sims_adapt);
-        sim_results_true(round_num,dim_num) = geomean(best_sims_true);
+        sim_results_super(round_num,dim_num) = geomean(best_sims_super);
         class_errs_raw(round_num,dim_num) = err_raw;
         class_errs_pc(round_num,dim_num) = err_pc;
         class_errs_adapt(round_num,dim_num) = err_adapt;
+        class_errs_super(round_num,dim_num) = err_super;
     end
     % Save results in case of need for partial results
-    save('synth_test_xxx.mat');
+    save('test_synth_results.mat');
 end
 
 % EYE BUFFER
