@@ -174,6 +174,7 @@ lrn_opts.round_count = 5;
 lrn_opts.Ai = ppcb;
 fprintf('FIRST PASS UPDATES:\n');
 for i=1:50,
+    fprintf('ROUND %d\n',i);
     train_idx = randsample(train_times,1000);
     lrn_opts.idx = train_idx;
     % Update learning opts, for updated bases and coefficients
@@ -188,6 +189,7 @@ lrn_opts.step = 10;
 noise_lvl = 0.2;
 fprintf('SECOND PASS UPDATES:\n');
 for i=1:10,
+    fprintf('ROUND %d\n',i);
     train_idx = randsample(train_times,1000);
     lrn_opts.idx = train_idx;
     % Encode the full data set using the updated bases
