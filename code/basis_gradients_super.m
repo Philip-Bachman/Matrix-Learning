@@ -1,4 +1,4 @@
-function [ dA ] = basis_gradients_super( A, b, w, x_in, x_out, y,...
+function [ dA_un dA_su ] = basis_gradients_super( A, b, w, x_in, x_out, y,...
     l1_bases, l2_reg, l_mix )
 % Get the supervised element-wise basis gradients for:
 %   L(...) =   l_mix * ||x_out - sum_i(b(i)*A(i)*x_in)||^2
@@ -14,10 +14,10 @@ function [ dA ] = basis_gradients_super( A, b, w, x_in, x_out, y,...
 %   y: target class/output, to be passed to a (differentiable) loss function
 %   l1_bases: l1 sparsifying penalty to place on basis entries (scalar)
 %   l2_reg: l2 penalty used in the elastic-net regression which produced b
-%   l_mix: scalar in [0...1], for mixing supervised/unsupervised gradients
+%   l_mix: mixing ratio for supervised/unsupervised gradients
 %
 % Outputs:
-%   dA: gradients of the objective with respect to each basis entry
+%   dA_un: gradients of the objective with respect to each basis entry
 %
 
 if (nargin < 9)
@@ -37,7 +37,6 @@ if (l_mix > 0)
     dD = -2 * (x_out - D*b) * b';
     dA_un = backprop_dict_grads(dD, x_in, b_act);
 else
-    l_mix = 0;
     dA_un = zeros(in_dim,in_dim,basis_count);
 end
 
@@ -50,12 +49,8 @@ if (l_mix < 1)
     dD = (-D * B * b') + ((x_out - (D * b)) * B');
     dA_su = backprop_dict_grads(dD, x_in, b_act);
 else
-    l_mix = 1;
     dA_su = zeros(in_dim,in_dim,basis_count);
 end
-
-% Finally, mix the supervised/unsupervised gradients, and add the L1 penalty
-dA = (l_mix * dA_un) + ((1 - l_mix) * dA_su) + (sign(A) .* l1_bases);
 
 return
 

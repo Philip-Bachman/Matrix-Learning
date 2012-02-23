@@ -26,13 +26,12 @@ function [ A_new rec_err reg_err best_step ] = update_bases_super(...
 %   reg_err: l1 regularization error after basis update
 %   best_step: step size of best update
 %
-basis_count = size(A,3);
-A_grads = zeros(size(A));
-obs_count = size(X,1);
 if ~exist('opts','var')
     error('update_bases_super(): options structure required\n');
 end
 % Unpack options structure
+basis_count = size(A,3);
+obs_count = size(X,1);
 step_size = opts.step_size;
 l1_bases = opts.l1_bases;
 l2_reg = opts.l2_reg;
@@ -63,15 +62,24 @@ else
 end
 test_idx = setdiff(1:obs_count, train_idx);
 % Average the gradients across observations not in the test set
+dA_un = zeros(size(A));
+dA_su = zeros(size(A));
 for i=1:numel(train_idx),
     idx = train_idx(i);
     b = B(idx,:)';
     x = X(idx,:)';
     y = Y(idx);
-    A_semi_grads = basis_gradients_super(...
+    [dA_un_i dA_su_i] = basis_gradients_super(...
         A, b, w, x, x, y, l1_bases, l2_reg(idx), l_mix);
-    A_grads = A_grads + A_semi_grads;
+    dA_un = dA_un + dA_un_i;
+    dA_su = dA_su + dA_su_i;
 end
+% Normalize the gradients to have similar "energy"
+dA_su = dA_su .* ...
+    (sqrt(sum(sum(sum(dA_un.^2)))) / sqrt(sum(sum(sum(dA_su)))+1e-5));
+% Mix the supervised and unsupervised gradients
+A_grads = ((l_mix * dA_un) + ((1 - l_mix) * dA_su)) + ...
+    ((l1_bases * numel(train_idx)) * sign(A));
 % Symmetrize the bases and gradients (to account for use as GGM structures)
 for i=1:basis_count,
     basis = squeeze(A(:,:,i));
@@ -92,8 +100,7 @@ if (noise_lvl > 0.01)
     end
 end
 % Get the gradient descent step sizes to check in "line search"
-% trial_steps = linspace(0.1,1.0,5);
-trial_steps = [0.1 0.25 0.5 1.0];
+trial_steps = [0.5 1.0];
 trial_steps = trial_steps .* step_size;
 % Get the validation set with which to perform "line search"
 if (do_cv == 1)

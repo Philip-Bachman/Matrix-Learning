@@ -90,7 +90,7 @@ for round_num=1:round_count,
         mean_basis = reshape(mean(Ats_f(train_idx,:)),obs_dim,obs_dim);
 
         % Get test observation sets
-        pc_count = 4;
+        pc_count = 6;
         Ats_f_pc = bsxfun(@minus,Ats_f,reshape(mean_basis,1,obs_dim*obs_dim))...
             * pc(:,1:pc_count);
         
@@ -146,10 +146,11 @@ for round_num=1:round_count,
         lrn_opts.l1_bases = 0.0;
         bases_adapt = learn_bases_super(X(train_idx,:),Y(train_idx),lrn_opts);
         % Use a small l1 penalty on basis entries
-        lrn_opts.l1_bases = 0.0005 * (10 / obs_dim);
+        lrn_opts.l1_bases = 0.001 * (10 / obs_dim);
         lrn_opts.round_count = 10;
-        lrn_opts.l_mix = 0.66;
+        lrn_opts.l_mix = 0.95;
         bases_super = bases_adapt;
+        beta_lr_super = zeros(pc_count,1);
         fprintf('UPDATING BASES - Supervised updates:\n');
         for r=1:5,
             % Encode the full data set using the updated bases
@@ -157,7 +158,9 @@ for round_num=1:round_count,
                 X, X, bases_super, lrn_opts.k, lrn_opts.spars, 0, 0);
             % Update logistic regression coefficients
             beta_lr_super = wl1_logreg(beta_super(train_idx,:), Y(train_idx),...
-                1e-4, 0, zeros(pc_count,1), 250);
+                1e-4, 0, beta_lr_super, 250);
+            err = sum((beta_super(train_idx,:)*beta_lr_super) .* Y(train_idx) < 0) / length(train_idx);
+            fprintf('CLASS ERR: %.4f\n',err);
             % Update learning opts, for updated bases and coefficients
             lrn_opts.wi = beta_lr_super;
             lrn_opts.Ai = bases_super;
