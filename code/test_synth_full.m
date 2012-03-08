@@ -8,9 +8,9 @@ c = clock();
 reset(stream,round(1000*c(6)));
 
 % Do full testing with synthetic data
-round_count = 15;
+round_count = 1;
 k_vals = 3.0:0.5:6.0;
-obs_dims = [10 15 20 25 30 35 40];
+obs_dims = [20]; %[10 15 20 25 30 35 40];
 k_count = numel(k_vals);
 dim_count = numel(obs_dims);
 
@@ -146,7 +146,7 @@ for round_num=1:round_count,
         lrn_opts.l1_bases = 0.0;
         bases_adapt = learn_bases_super(X(train_idx,:),Y(train_idx),lrn_opts);
         % Use a small l1 penalty on basis entries
-        lrn_opts.l1_bases = 0.001 * (10 / obs_dim);
+        lrn_opts.l1_bases = 0.01 * (10 / obs_dim);
         lrn_opts.round_count = 10;
         lrn_opts.l_mix = 0.95;
         bases_super = bases_adapt;
